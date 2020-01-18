@@ -51,7 +51,7 @@ if sys.version_info >= (3, 0):
     "int":     ["int8", "byte", "uint8", "char",
                 "int16", "uint16", "int32", "uint32",
                 "int64", "uint64", "float32", "float64"],
-    "float":   ["float32", "float64", "double"],
+    "float":   ["float32", "float64", "double", "float"],
     "str":     ["string"]
     }
     primitive_types = [bool, int, float]
@@ -62,7 +62,7 @@ else:
     "int":     ["int8", "byte", "uint8", "char",
                 "int16", "uint16", "int32", "uint32",
                 "int64", "uint64", "float32", "float64"],
-    "float":   ["float32", "float64"],
+    "float":   ["float32", "float64", "float"],
     "str":     ["string"],
     "unicode": ["string"],
     "long":    ["int64", "uint64"]
@@ -73,7 +73,7 @@ else:
 list_types = [list, tuple]
 ros_time_types = ["builtin_interfaces/Time", "builtin_interfaces/Duration"]
 ros_primitive_types = ["bool", "byte", "char", "int8", "uint8", "int16",
-                       "uint16", "int32", "uint32", "int64", "uint64",
+                       "uint16", "int32", "uint32", "int64", "uint64", "float",
                        "float32", "float64", "double", "string"]
 ros_header_types = ["Header", "std_msgs/Header", "roslib/Header"]
 ros_binary_types = ["uint8[]", "char[]"]
@@ -173,7 +173,7 @@ def _from_inst(inst, rostype):
 
     # Check for time or duration
     if rostype in ros_time_types:
-        return {"secs": inst.secs, "nsecs": inst.nsecs}
+        return {"secs": inst.sec, "nsecs": inst.nanosec}
 
     if(bson_only_mode is None):bson_only_mode = rospy.get_param('~bson_only_mode', False)
     # Check for primitive types
@@ -212,9 +212,13 @@ def _from_object_inst(inst, rostype):
     # Create an empty dict then populate with values from the inst
     msg = {}
     # Equivalent for zip(inst.__slots__, inst._slot_types) in ROS1:
-    for field_name, field_rostype in inst.get_fields_and_field_types().items():
-        field_inst = getattr(inst, field_name)
-        msg[field_name] = _from_inst(field_inst, field_rostype)
+    if hasattr(inst, 'get_fields_and_field_types'):
+        for field_name, field_rostype in inst.get_fields_and_field_types().items():
+            field_inst = getattr(inst, field_name)
+            msg[field_name] = _from_inst(field_inst, field_rostype)
+    else:
+        #deal with array types
+        msg = str(inst)
     return msg
 
 
@@ -284,10 +288,12 @@ def _to_time_inst(msg, rostype, inst=None):
 def _to_primitive_inst(msg, rostype, roottype, stack):
     # Typecheck the msg
     msgtype = type(msg)
+    print(msgtype)
     if msgtype in primitive_types and rostype in type_map[msgtype.__name__]:
         return msg
     elif msgtype in string_types and rostype in type_map[msgtype.__name__]:
         return msg.encode("utf-8", "ignore") if python2 else msg
+    
     raise FieldTypeMismatchException(roottype, stack, rostype, msgtype)
 
 
@@ -309,7 +315,9 @@ def _to_list_inst(msg, rostype, roottype, inst, stack):
 
 def _to_object_inst(msg, rostype, roottype, inst, stack):
     # Typecheck the msg
+    print(msg, rostype, roottype, inst, stack)
     if type(msg) is not dict:
+        #return msg
         raise FieldTypeMismatchException(roottype, stack, rostype, type(msg))
 
     # Substitute the correct time if we're an std_msgs/Header
